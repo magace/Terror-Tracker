@@ -1,0 +1,8 @@
+{
+    "allowed_channel_ids": [1234567890],
+    "commant_prefix": ".",
+    "bot_name": "TerrorTracker",
+    "api_url": "https://d2emu.com/api/v1/tz",
+    "bot_token": "yourbottoken",
+    "show_in_channel": true
+}
