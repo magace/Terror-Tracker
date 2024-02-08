@@ -4,6 +4,7 @@ from discord.ext import commands
 from datetime import datetime, timedelta
 import asyncio
 import requests
+import time
 from zones import zone_mapping
 
 # Load configuration from config.json
@@ -15,7 +16,8 @@ api_url = config.get("api_url")
 bot_token = config.get("bot_token")
 command_prefix = config.get("commant_prefix")
 bot_name = config.get("bot_name")
-
+allowed_channels = config.get("allowed_channel_ids")
+channel_message_id = config.get("channel_message_id")
 
 # Discord Intents
 intents = discord.Intents.default()
@@ -27,36 +29,53 @@ next_terror_zone_memory = None
 
 
 allowed_channel_ids = config.get("allowed_channel_ids", [])
-print("Allowed Channel IDs:", allowed_channel_ids)  # Add this line to check if channel IDs are loaded correctly
+print("Allowed Channel IDs:", allowed_channel_ids)
 
+
+
+def get_formatted_timestamp():
+    return time.strftime("%Y-%m-%d %H:%M:%S")
 
 @bot.event
 async def on_ready():
     global user_notifications
     await bot.user.edit(username=bot_name)
-    
     print("on_ready event triggered")
     print(f'Logged in as {bot.user.name} ({bot.user.id})')
     try:
         with open('subscriptions.json', 'r') as file:
             user_notifications = json.load(file)
-        print("Loaded subscriptions:", user_notifications)  # Print loaded subscriptions
+        print("Loaded subscriptions:", user_notifications)
     except FileNotFoundError:
         with open('subscriptions.json', 'w') as file:
             file.write("{}")
         user_notifications = {}
         print("No subscription file found, initialized an empty dictionary.")
+        
     if show_in_channel:
         current_terror_zone, next_terror_zone = get_terror_zones()
+        updated_timestamp = get_formatted_timestamp()
         for channel_id in allowed_channel_ids:
             channel = bot.get_channel(channel_id)
             if channel:
-                await channel.send(f"Current Terror Zone: {current_terror_zone}\nNext Terror Zone: {next_terror_zone}")
+                if channel_message_id:
+                    try:
+                        message = await channel.fetch_message(channel_message_id)
+                        await message.edit(content=f"Current Terror Zone: {current_terror_zone}\nNext Terror Zone: {next_terror_zone} \nLast Updated: {updated_timestamp}")
+                    except discord.NotFound:
+                        message = await channel.send(f"Current Terror Zone: {current_terror_zone}\nNext Terror Zone: {next_terror_zone} \nLast Updated: {updated_timestamp}")
+                        config["channel_message_id"] = message.id
+                        with open('config.json', 'w') as config_file:
+                            json.dump(config, config_file, indent=4)
+                else:
+                    message = await channel.send(f"Current Terror Zone: {current_terror_zone}\nNext Terror Zone: {next_terror_zone} \nLast Updated: {updated_timestamp}")
+                    config["channel_message_id"] = message.id
+                    with open('config.json', 'w') as config_file:
+                        json.dump(config, config_file, indent=4)
+
 
     await notify_users()
     bot.loop.create_task(schedule_notifications())
-
-    
 
 # Show in Channel
 show_in_channel = config.get("show_in_channel", False)
@@ -74,8 +93,6 @@ class CustomHelpCommand(commands.DefaultHelpCommand):
 
 bot.help_command = CustomHelpCommand()
 
-
-# Load users subscription file.
 try:
     with open('subscriptions.json', 'r') as file:
         user_notifications = json.load(file)
@@ -175,7 +192,6 @@ async def notify_users():
                 print(f"Failed to send message to user {user_id}: {e}")
 
 
-
 @bot.command(name='notifications')
 async def show_notifications(ctx):
     """Shows a list of zones you are subscribed to."""
@@ -214,27 +230,46 @@ async def lookup(ctx):
     # Format time remaining
     time_until_next_hour = f"{minutes_until_next_hour} minute{'s' if minutes_until_next_hour != 1 else ''}"
     # Send the retrieved terror zone information to the Discord channel along with time until next hour
-    await ctx.send(f"Current Terror Zone: {current_terror_zone}\nNext Terror Zone: {next_terror_zone}\nTime until next zone change: {time_until_next_hour}")
+    message = await ctx.send(f"Current Terror Zone: {current_terror_zone}\nNext Terror Zone: {next_terror_zone}\nTime until next zone change: {time_until_next_hour}")
+    
+    # Wait for 5 seconds
+    await asyncio.sleep(5)
+    
+    # Delete the bot's message
+    await message.delete()
+    
+    # Delete the user's message
+    await ctx.message.delete()
+
 
 async def schedule_notifications():
     while True:
         current_time = datetime.now()
-        # Schedule the task to run at the next hour mark
         next_hour = (current_time.replace(second=0, microsecond=0, minute=1) + timedelta(hours=1)).timestamp()
-        # Calculate the delay until the next hour mark
         delay = next_hour - current_time.timestamp()
-        # Wait until the next hour
         await asyncio.sleep(delay)
-        # Notify users about terror zones
         await notify_users()
 
-        # Check if show_in_channel is set to True
+        updated_timestamp = get_formatted_timestamp()
         if show_in_channel:
             current_terror_zone, next_terror_zone = get_terror_zones()
             for channel_id in allowed_channel_ids:
                 channel = bot.get_channel(channel_id)
                 if channel:
-                    await channel.send(f"Current Terror Zone: {current_terror_zone}\nNext Terror Zone: {next_terror_zone}")
+                    if channel_message_id:
+                        try:
+                            message = await channel.fetch_message(channel_message_id)
+                            await message.edit(content=f"Current Terror Zone: {current_terror_zone}\nNext Terror Zone: {next_terror_zone} \nLast Updated: {updated_timestamp}")
+                        except discord.NotFound:
+                            message = await channel.send(f"Current Terror Zone: {current_terror_zone}\nNext Terror Zone: {next_terror_zone} \nLast Updated: {updated_timestamp}")
+                            config["channel_message_id"] = message.id
+                            with open('config.json', 'w') as config_file:
+                                json.dump(config, config_file, indent=4)
+                    else:
+                        message = await channel.send(f"Current Terror Zone: {current_terror_zone}\nNext Terror Zone: {next_terror_zone} \nLast Updated: {updated_timestamp}")
+                        config["channel_message_id"] = message.id
+                        with open('config.json', 'w') as config_file:
+                            json.dump(config, config_file, indent=4)
 
 
 bot.run(bot_token)

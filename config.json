@@ -4,5 +4,6 @@
     "bot_name": "TerrorTracker",
     "api_url": "https://d2emu.com/api/v1/tz",
     "bot_token": "yourbottoken",
-    "show_in_channel": true
+    "show_in_channel": true,
+    "channel_message_id": null
 }
